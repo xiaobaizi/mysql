@@ -1,0 +1,119 @@
+一、环境配置
+1、安装环境
+[root@jiahao ~]# yum install -y httpd mariadb-server mariadb php php-mysql php-gd libjpeg* php-ldap php-odbc php-pear php-xml php-xmlrpc php-mhash
+查看版本
+[root@jiahao ~]# rpm -qa httpd mariadb php
+
+启动服务
+[root@jiahao ~]# systemctl start httpd mariadb
+
+开机自启
+[root@jiahao ~]# systemctl enable httpd mariadb
+
+设置mariadb初始密码
+[root@jiahao ~]# mysql_secure_installation
+之后出现下面提示，默认密码为空，按回车继续
+Enter current password for root (enter for none):
+Set root password? [Y/n]
+按照提示输入Y，并设置新密码，两次相同输入
+
+
+接下来的提示为了安全，建议全部输入Y
+Remove anonymous users? [Y/n] y
+是否移除匿名用户?
+
+Disallow root login remotely? [Y/n] y
+是否允许root用户远程登录？
+
+Remove test database and access to it? [Y/n] y
+ 是否移除test数据库
+
+Reload privilege tables now? [Y/n] y
+是否重载权限表
+出现“Thanks for using mariaDB.”提示便表示成功。
+
+
+2、关闭防火墙和SELINUX
+[root@jiahao ~]# systemctl stop firewalld
+[root@jiahao ~]# systemctl disable firewalld
+[root@jiahao ~]# vi /etc/selinux/config
+修改为SELINUX=disabled
+
+二、Zabbix安装
+1、安装zabbix源
+[root@jiahao ~]# rpm -Uvh https://repo.zabbix.com/zabbix/4.0/rhel/7/x86_64/zabbix-release-4.0-1.el7.noarch.rpm
+[root@jiahao ~]# yum clean all
+注意：如果是阿里云服务器zabbix源需要换成阿里云的源，如下：
+[root@h5-back1 ~]# cat /etc/yum.repos.d/zabbix.repo 
+[zabbix]
+name=Zabbix Official Repository - \$basearch
+baseurl=https://mirrors.aliyun.com/zabbix/zabbix/4.0/rhel/7/\$basearch/
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ZABBIX-A14FE591
+  
+[zabbix-non-supported]
+name=Zabbix Official Repository non-supported - \$basearch
+baseurl=https://mirrors.aliyun.com/zabbix/non-supported/rhel/7/\$basearch/
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-ZABBIX
+gpgcheck=1
+基本都是zabbix4.0以上，所以就不用改，如果是5.0 ，就把4.0换成5.0就行
+
+2、安装zabbix server，Web前端，agent
+[root@jiahao ~]# yum -y install zabbix-server-mysql zabbix-web-mysql zabbix-agent
+如果安装失败建议DNS改成8.8.8.8、8.8.4.4或者多执行几次安装命令，这里还要注意zabbix源
+3、创建数据库
+[root@jiahao ~]# mysql -uroot -p
+password:输入刚刚初始化的密码
+mysql> create database zabbix character set utf8 collate utf8_bin;
+mysql> grant all privileges on zabbix.* to zabbix@localhost identified by 'zabbix';  #这种授权适合本地数据库
+mysql> grant all privileges on zabbix.* to zabbix@“%” identified by 'zabbix';        #这种适合任何网络环境，密码最好复杂，前期可以简单，等都安装好，可以改复杂
+mysql> flush privileges;
+mysql> quit;
+4、导入初始架构和数据，系统将提示您输入新创建的密码，此过程约耗时10多秒。
+[root@jiahao ~]# zcat /usr/share/doc/zabbix-server-mysql*/create.sql.gz | mysql -uzabbix -p zabbix
+注意：如果这个导不数据，就查看zabbix-server-mysql 
+
+5、zabbix server配置数据库
+编辑配置文件 /etc/zabbix/zabbix_server.conf
+[root@jiahao ~]# vim  /etc/zabbix/zabbix_server.conf
+搜索到DBPassword
+# DBPassword= 更改为
+DBPassword=zabbix       #zabbix更改为创建zabbix库时设置的密码。
+
+6、zabbix前端配置PHP
+编辑配置文件/etc/httpd/conf.d/zabbix.conf
+[root@jiahao ~]# vim /etc/httpd/conf.d/zabbix.conf
+找到timezone
+# php_value date.timezone Europe/Riga 更改为： 
+php_value date.timezone Asia/Shanghai
+
+7、启动zabbix server和agent进程
+systemctl restart zabbix-server zabbix-agent
+
+并设置开机启动
+systemctl enable zabbix-server zabbix-agent
+检查服务状态
+netstat -ntpl
+systemctl status zabbix-server zabbix-agent httpd
+9、配置Web前端访问
+保证httpd服务正常，配置文件配置正确，web可访问，具体这里就不写了。
+通过http://<server_ip_or_name>/zabbix或者http://<server_ip_or_name>访问
+
+——————————————————————————————————————————————————————————————————————
+遇到问题
+1 安装完成后由于etc/httpd/conf.d/zabbix.conf时间没改，导致无法下一步
+2 连接数据库时问题，汇总
+  （1） 数据库zabbix权限都没问题，用Navicat mysql工具连接都是可以的，但就是一直报not connation 不能连接问题
+  （2） 遇到这种问题，重新导入数据，重新授权
+  （3） 重新安装数据库，彻底删除数据库
+         yum remove  mariaDB
+         RPM  -qa   mariaDB*  
+		 rpm -e   mariaDB  
+		 rpm  -e   mariaDB  --nodeps  #强制删除
+		 rm -rf  rm -rf /var/lib/mysql/
+		 rm -f /etc/my.cnf
+3  都安装好，添加主机时，报数据库的问题，一直会报错，肯定是数据库问题，继续第二步，解决。
+4  乱码问题，将window的c:windows/fonts/中的简体字体，考到/usr/share/zabbix/fonts/ 先查看/etc/alternatives中文件链接    rm -f /etc/alternatives/zabbix-web-font ln -s /usr/share/zabbix/fonts/simkai.ttf /etc/alternatives/zabbix-web-font 
+   然后就好了
