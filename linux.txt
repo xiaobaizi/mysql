@@ -1,0 +1,234 @@
+ii仅供参考
+
+一、业务对FTP服务器的需求：
+
+总路径/home/download
+第一类账户及文件夹权限：
+admin_root：/home/download/下的所有文件夹及文件具有上传、下载、删除权限
+admin_001：/home/download/admin_001/下的文件具有上传、下载、删除权限
+admin_002：/home/download/admin_002/下的文件具有上传、下载、删除权限
+admin_003：/home/download/admin_003/下的文件具有上传、下载、删除权限
+admin_004：/home/download/admin_004/下的文件具有上传、下载、删除权限
+
+第二类账户及文件夹权限：
+download_root：/home/download/下的所有文件夹及文件具有下载权限
+download_001：/home/download/admin_001/下的文件具有下载权限
+download_002：/home/download/admin_002/下的文件具有下载权限
+download_003：/home/download/admin_003/下的文件具有下载权限
+download_004：/home/download/admin_004/下的文件具有下载权限
+
+为满足上述需求，考虑使用FTP服务器的虚拟用户方式实现。
+
+二、具体配置环境及流程如下：
+
+环境：CentOS Linux release 7.0
+10.190.104.88
+
+（一）、安装vsftp
+yum -y install vsftpd
+rpm -ql vsftpd
+配置文件路径应为/etc/vsftpd/
+启动服务：
+service vsftpd start 
+在win计算机窗口里输入ftp://10.190.104.88或使用浏览器、Filezilla输入也可以，查看到pub文件夹则服务安装成功。
+
+（二）、使用虚拟用户来实现指定功能的过程；
+
+1、首先创建一个本地系统用户abcde并指定其家目录，并建立相应的子目录；
+useradd -d /home/download abcde -s /sbin/nologin
+mkdir -p /home/download/admin_001
+mkdir -p /home/download/admin_002
+mkdir -p /home/download/admin_003
+mkdir -p /home/download/admin_004
+chown -R abcde: /home/download
+chmod 755 /home/download
+chmod 755 /home/download/*
+
+2、创建用户数据文件：（一行账号一行密码，不要有空行，不要有空格）
+所有密码此处示例设为123456。
+vim /etc/vsftpd/userlist.txt 
+admin_root 
+123456
+admin_001
+123456
+admin_002
+123456
+admin_003
+123456
+admin_004
+123456
+download_root
+123456
+download_001
+123456
+download_002
+123456
+download_003
+123456
+download_004
+123456
+
+生成数据文件：
+db_load：一般系统都有安装，db4，db4-devel，db4-utils ，如果没有的话可以安装：
+yum -y install db4* 
+然后生成数据文件
+db_load -T -t hash -f /etc/vsftpd/userlist.txt /etc/vsftpd/userlist.db
+生成之后可将userlist.txt删除或备份。
+
+3、修改数据文件访问权限：
+chmod 600 /etc/vsftpd/userlist.db
+
+4、修改pam配置：
+vim /etc/pam.d/vsftpd 
+将原来的全部注释掉，加入： 
+auth sufficient /lib64/security/pam_userdb.so db=/etc/vsftpd/login
+account sufficient /lib64/security/pam_userdb.so db=/etc/vsftpd/login
+注意：db=/etc/vsftpd/vsftpd_login 后面的.db必须去掉，64位机需要使用lib64（这里折腾了好久，有的是lib有的是lib64）;
+
+5、创建本地系统用户abcde对应的虚拟账户：
+虚拟用户需要通过本地系统用户来实现各种操作,因此要放在系统用户的同名文件夹下。
+mkdir /etc/vfstpd/abcde
+cd  /etc/vfstpd/abcde
+每一个虚拟用户都要有一个同名的文件，文件里记载其权限以及可操作的目录；
+本例如下执行，两个>>和<<之间不要有空格：
+
+先创建有上传下载权限的用户：
+cat >>admin_root<<EOF
+anon_world_readable_only=NO
+write_enable=YES
+anon_mkdir_write_enable=YES
+anon_upload_enable=YES
+anon_other_write_enable=YES
+local_root=/home/download
+EOF
+
+cat >>admin_001<<EOF
+anon_world_readable_only=NO
+write_enable=YES
+anon_mkdir_write_enable=YES
+anon_upload_enable=YES
+anon_other_write_enable=YES
+local_root=/home/download/admin_001
+EOF
+
+cat >>admin_002<<EOF
+anon_world_readable_only=NO
+write_enable=YES
+anon_mkdir_write_enable=YES
+anon_upload_enable=YES
+anon_other_write_enable=YES
+local_root=/home/download/admin_002
+EOF
+
+
+cat >>admin_003<<EOF
+anon_world_readable_only=NO
+write_enable=YES
+anon_mkdir_write_enable=YES
+anon_upload_enable=YES
+anon_other_write_enable=YES
+local_root=/home/download/admin_003
+EOF
+
+cat >>admin_004<<EOF
+anon_world_readable_only=NO
+write_enable=YES
+anon_mkdir_write_enable=YES
+anon_upload_enable=YES
+anon_other_write_enable=YES
+local_root=/home/download/admin_004
+EOF
+再创建只有下载权限的用户：
+cat >>download_root<<EOF
+anon_world_readable_only=NO
+local_root=/home/download
+EOF
+
+cat >>download_001<<EOF
+anon_world_readable_only=NO
+local_root=/home/download/admin_001
+EOF
+
+cat >>download_002<<EOF
+anon_world_readable_only=NO
+local_root=/home/download/admin_002
+EOF
+
+cat >>download_003<<EOF
+anon_world_readable_only=NO
+local_root=/home/download/admin_003
+EOF
+
+cat >>download_004<<EOF
+anon_world_readable_only=NO
+local_root=/home/download/admin_004
+EOF
+
+
+6、设置配置文件vsftpd.conf
+vim /etc/vsftpd/vsftpd.conf
+修改内容如下：
+listen=YES
+connect_from_port_20=YES
+anonymous_enable=NO
+local_enable=YES
+write_enable=NO
+anon_upload_enable=NO
+anon_mkdir_write_enable=NO
+anon_other_write_enable=NO
+chroot_local_user=YES
+chroot_list_enable=YES
+chroot_list_file=/etc/vsftpd/chroot_list
+guest_enable=YES
+guest_username=abcde
+virtual_use_local_privs=YES
+allow_writeable_chroot=YES
+pam_service_name=vsftpd
+user_config_dir=/etc/vsftpd/abcde
+local_umask=022
+xferlog_enable=YES
+xferlog_file=/var/log/vsftpd.log
+
+vim /etc/vsftp/chroot_list
+里面啥也不写。
+
+
+7、重新启动vsftpd
+service vsftpd restart
+
+三、测试，需要包括的内容：
+
+所有用户只能进入自己家目录不能进入上一级目录；
+admin_root对于/home/download下的所有文件夹具有上传、下载、删除权限；
+admin_001~admin_004对于/home/download/下的同名文件夹具有上传、删除权限，无其他权限；
+download_root对于/home/download下的所有文件夹具有下载权限，不能上传或删除任何内容，不能对其他任何文件夹操作；
+download_001~download_004对于/home/download/下的admin_001~admin_004文件夹分别具有下载权限，不能上传或删除任何内容，不能对其他任何文件夹操作。
+
+四、可能出现的问题
+
+1、无法登陆1
+解决方法：
+（1）检查ftp根目录目录是否存在；
+（2）检查上面设置的各个路径是否正确；
+（3）查看ftp根目录的owner属主是否是abcde
+如果不是则需要：
+chown -R abcde: /home/download
+
+2、无法登陆2
+可能是/etc/pam.d/vsftp的问题，
+auth sufficient /lib64/security/pam_userdb.so db=/etc/vsftpd/login
+account sufficient /lib64/security/pam_userdb.so db=/etc/vsftpd/login
+将lib64改为lib试试，或者可以将sufficient改为acquired试试；
+
+3、权限不对
+可以看一下chroot_list里面要不要把哪些用户写进去。
+ 
+
+五、日常维护
+
+（1）更新帐号，先修改userlist.txt，再执行db_load
+db_load -T -t hash -f /etc/vsftpd/userlist.txt /etc/vsftpd/userlist.db
+（2）更新/etc/vsftpd/abcde/下不同用户对应的权限
+（3）重启vsftpd
+service vsftpd restart
+
